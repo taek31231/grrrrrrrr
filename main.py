@@ -90,11 +90,12 @@ def create_and_display_animation(
         u_planet_to_source = np.sqrt((planet_display_x - source_x)**2 + (planet_display_y - source_y)**2)
         
         # 행성의 영향이 시작되는 '유효 반지름' (이 값을 조절하여 피크 너비와 발생 시점 조절)
-        # 이 값은 행성 자체의 아인슈타인 반지름과 유사하게 생각할 수 있지만, 여기서는 시각적 조절용
-        planet_event_radius = 0.2 * RE # 렌즈별의 RE의 20% 정도로 설정. 이 값 조절로 피크 너비 조절 가능
+        # RE의 50% 정도로 설정하여 행성 피크가 나타날 확률을 높임
+        planet_event_radius = 0.5 * RE 
         
         # 행성으로 인한 최대 확대율 기여도 (이 값으로 행성 피크의 높이 조절)
-        max_planet_magnification_contribution = 0.3 # 예를 들어, 최대 0.3배 추가 밝기
+        # 메인 피크의 높이(최대 2.0 이상)를 고려하여 꽤 높게 설정해야 시각적으로 구분됨
+        max_planet_magnification_contribution = 1.0 # 예를 들어, 최대 1.0배 추가 밝기
 
         additional_magnification = 0.0
         # 행성이 배경 별에 충분히 가까워지면 추가 확대율 발생
@@ -131,7 +132,9 @@ def create_and_display_animation(
 
         return source_point, lens_point, planet_point, einstein_ring_patch, line_lc
 
-    ani = FuncAnimation(fig, update, frames=sim_total_frames, interval=sim_frame_interval_ms, blit=True, repeat=False)
+    # FuncAnimation 호출에서 blit=True를 False로 변경하거나 제거하여 테스트
+    # blit=True를 제거하는 것이 초기 테스트 시 더 안전합니다.
+    ani = FuncAnimation(fig, update, frames=sim_total_frames, interval=sim_frame_interval_ms, blit=False, repeat=False)
 
     # --- GIF로 저장 (tempfile 사용) ---
     with tempfile.NamedTemporaryFile(suffix=".gif", delete=False) as tmpfile:
@@ -281,7 +284,8 @@ if st.session_state.animation_created and st.session_state.animation_path_base64
     
     with col_viz_gif:
         st.subheader("렌즈 효과 시뮬레이션")
-        st.image(f"data:image/gif;base64,{st.session_state.animation_path_base64}", use_column_width=True)
+        # 경고 메시지 처리를 위해 use_column_width 대신 use_container_width 사용 (Streamlit 최신 버전)
+        st.image(f"data:image/gif;base64,{st.session_state.animation_path_base64}", use_container_width=True) 
         st.caption("렌즈 별이 배경 별 앞을 지나가면서 빛이 휘어지는 모습을 시뮬레이션합니다.")
     
     with col_curve_static:
