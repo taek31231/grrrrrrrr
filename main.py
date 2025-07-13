@@ -191,14 +191,14 @@ with col_buttons[0]:
             st.session_state.animation_path_base64 = data_url
             st.session_state.animation_created = True
         st.success("애니메이션 생성 완료! 아래에서 확인하세요.")
-        st.experimental_rerun() # UI 업데이트를 위해 앱을 다시 로드
+        st.rerun() # <-- 여기서 변경!
 
 with col_buttons[1]:
     if st.button("🔄 시뮬레이션 초기화"):
         st.session_state.animation_created = False
         st.session_state.animation_path_base64 = None
         st.session_state.light_curve_data = {'time': [], 'magnification': []}
-        st.experimental_rerun() # 앱을 처음부터 다시 로드하여 초기 상태로 만듦
+        st.rerun() # <-- 여기서 변경!
 
 
 st.sidebar.header("⚙️ 시뮬레이션 설정")
