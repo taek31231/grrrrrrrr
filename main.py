@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import os
 import base64
-import tempfile # tempfile 모듈 추가
+import tempfile 
 
 # --- 상수 및 초기 설정 ---
 RE = 1.0 # 아인슈타인 반지름을 단위로 가정 (시뮬레이션의 단순화를 위함)
@@ -82,12 +82,15 @@ def create_and_display_animation(
         planet_x_offset = planet_distance_re * np.cos(planet_angle)
         planet_y_offset = planet_distance_re * np.sin(planet_angle) # 같은 평면 내 공전
 
-        # 시각화 업데이트
-        source_point.set_data(source_x, source_y)
-        lens_point.set_data(lens_x_current, 0) # 렌즈 별은 X축만 따라 이동
-        planet_point.set_data(lens_x_current + planet_x_offset, planet_y_offset) # 행성은 렌즈 별을 중심으로 공전
+        # 시각화 업데이트: 단일 값을 리스트로 감싸서 전달
+        source_point.set_data([source_x], [source_y])
+        lens_point.set_data([lens_x_current], [0]) 
         
-        einstein_ring_patch.center = (lens_x_current, 0) # 아인슈타인 링도 렌즈 별 따라 이동
+        planet_display_x = lens_x_current + planet_x_offset
+        planet_display_y = planet_y_offset 
+        planet_point.set_data([planet_display_x], [planet_display_y])
+        
+        einstein_ring_patch.center = (lens_x_current, 0) 
 
         # 광도 곡선 데이터 업데이트
         lc_times.append(frame) # 시간 대신 프레임 번호를 사용 (상대 시간)
@@ -178,7 +181,7 @@ with col_buttons[0]:
         # 애니메이션 생성 함수 호출 (캐싱되어 있으므로 설정값 변경 없으면 빠르게 반환)
         # 이 시점에서 생성 메시지를 표시하기 위해 스피너 사용
         with st.spinner("애니메이션을 생성 중입니다... ✨ (설정값에 따라 시간이 걸릴 수 있습니다)"):
-            data_url = create_and_display_animation( # <--- 여기가 73번째 줄 근처일 것입니다.
+            data_url = create_and_display_animation( 
                 sim_total_frames=st.session_state.sim_total_frames,
                 sim_duration_units=st.session_state.sim_duration_units,
                 sim_frame_interval_ms=st.session_state.sim_frame_interval_ms,
