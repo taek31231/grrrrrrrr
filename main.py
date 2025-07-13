@@ -73,37 +73,63 @@ def create_and_display_animation(
         # 렌즈 별의 X 위치 (시뮬레이션 범위 -sim_duration_units/2 에서 sim_duration_units/2 까지 이동)
         lens_x_current = -sim_duration_units / 2 + (frame / (sim_total_frames - 1)) * sim_duration_units
         
-        # 렌즈 별과 배경 별 사이의 거리 (u)
-        u = abs(lens_x_current - source_x)
-        current_magnification = calculate_magnification(u)
+        # 렌즈 별과 배경 별 사이의 거리 (u_lens) 및 기본 확대율 (main_magnification)
+        u_lens = abs(lens_x_current - source_x)
+        main_magnification = calculate_magnification(u_lens)
 
         # 행성의 공전 위치 계산 (렌즈 별을 중심으로, 같은 횡단 평면 내에서)
         planet_angle = frame * planet_orbit_speed_rad_per_frame # 프레임당 각도 증가
         planet_x_offset = planet_distance_re * np.cos(planet_angle)
         planet_y_offset = planet_distance_re * np.sin(planet_angle) # 같은 평면 내 공전
 
+        planet_display_x = lens_x_current + planet_x_offset
+        planet_display_y = planet_y_offset 
+
+        # --- 행성으로 인한 추가 확대율 계산 ---
+        # 배경 별과 행성 사이의 거리 (이것이 행성 렌즈에 대한 '충격 매개변수' 역할을 함)
+        u_planet_to_source = np.sqrt((planet_display_x - source_x)**2 + (planet_display_y - source_y)**2)
+        
+        # 행성의 영향이 시작되는 '유효 반지름' (이 값을 조절하여 피크 너비와 발생 시점 조절)
+        # 이 값은 행성 자체의 아인슈타인 반지름과 유사하게 생각할 수 있지만, 여기서는 시각적 조절용
+        planet_event_radius = 0.2 * RE # 렌즈별의 RE의 20% 정도로 설정. 이 값 조절로 피크 너비 조절 가능
+        
+        # 행성으로 인한 최대 확대율 기여도 (이 값으로 행성 피크의 높이 조절)
+        max_planet_magnification_contribution = 0.3 # 예를 들어, 최대 0.3배 추가 밝기
+
+        additional_magnification = 0.0
+        # 행성이 배경 별에 충분히 가까워지면 추가 확대율 발생
+        if u_planet_to_source < planet_event_radius:
+            # 행성과의 거리가 가까워질수록 확대율이 증가하도록 (단순한 선형/2차 함수)
+            # 여기서는 2차 함수 형태를 사용하여 피크 중심에서 가장 높고 가장자리로 갈수록 부드럽게 감소
+            # 1 - (거리/반지름)^2 형태: 거리가 0이면 1, 반지름과 같으면 0
+            factor = 1 - (u_planet_to_source / planet_event_radius)**2
+            additional_magnification = max_planet_magnification_contribution * factor
+            # 확대율이 음수가 되지 않도록 최소 0을 보장
+            additional_magnification = max(0.0, additional_magnification)
+
+        # 최종 확대율은 주 렌즈(별)의 확대율에 행성의 추가 확대율을 더한 값
+        current_magnification = main_magnification + additional_magnification
+
         # 시각화 업데이트: 단일 값을 리스트로 감싸서 전달
         source_point.set_data([source_x], [source_y])
         lens_point.set_data([lens_x_current], [0]) 
-        
-        planet_display_x = lens_x_current + planet_x_offset
-        planet_display_y = planet_y_offset 
         planet_point.set_data([planet_display_x], [planet_display_y])
         
         einstein_ring_patch.center = (lens_x_current, 0) 
 
         # 광도 곡선 데이터 업데이트
-        lc_times.append(frame) # 시간 대신 프레임 번호를 사용 (상대 시간)
+        lc_times.append(frame) 
         lc_magnifications.append(current_magnification)
 
         line_lc.set_data(lc_times, lc_magnifications)
         ax_curve.set_xlim(0, sim_total_frames)
+        
         # Y축 범위 조정: 최소 1배부터 최대 확대율까지 + 여유 공간
         min_mag = 1.0 
         max_mag_in_data = max(lc_magnifications) if lc_magnifications else 1.0
-        ax_curve.set_ylim(bottom=0.95, top=max(max_mag_in_data * 1.1, 2.0)) # 최소 2.0까지 보이게 (일반적인 피크)
+        ax_curve.set_ylim(bottom=0.95, top=max(max_mag_in_data * 1.1, 2.0)) 
 
-        return source_point, lens_point, planet_point, einstein_ring_patch, line_lc # 업데이트된 객체 반환
+        return source_point, lens_point, planet_point, einstein_ring_patch, line_lc
 
     ani = FuncAnimation(fig, update, frames=sim_total_frames, interval=sim_frame_interval_ms, blit=True, repeat=False)
 
@@ -191,14 +217,14 @@ with col_buttons[0]:
             st.session_state.animation_path_base64 = data_url
             st.session_state.animation_created = True
         st.success("애니메이션 생성 완료! 아래에서 확인하세요.")
-        st.rerun() # <-- 여기서 변경!
+        st.rerun() # UI 업데이트를 위해 앱을 다시 로드
 
 with col_buttons[1]:
     if st.button("🔄 시뮬레이션 초기화"):
         st.session_state.animation_created = False
         st.session_state.animation_path_base64 = None
         st.session_state.light_curve_data = {'time': [], 'magnification': []}
-        st.rerun() # <-- 여기서 변경!
+        st.rerun() # 앱을 처음부터 다시 로드하여 초기 상태로 만듦
 
 
 st.sidebar.header("⚙️ 시뮬레이션 설정")
