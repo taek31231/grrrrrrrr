@@ -20,121 +20,6 @@ def calculate_magnification(u):
         u = 0.01
     return (u**2 + 2) / (u * np.sqrt(u**2 + 4))
 
-# --- Streamlit 앱 시작 ---
-st.set_page_config(layout="wide", page_title="미세중력렌즈 시뮬레이터")
-
-st.title("🔭 미세중력렌즈 시각화 및 시뮬레이터")
-
-st.markdown("""
-이 앱은 **미세중력렌즈(Microlensing)** 현상을 시각적으로 탐색하고 이해할 수 있도록 돕습니다.
-우리와 배경 별 사이에 있는 **렌즈 별**의 중력에 의해 먼 **배경 별**의 빛이 휘어져
-밝기가 일시적으로 증가하는 현상을 시뮬레이션합니다.
-
-**사용 방법:**
-1.  사이드바에서 시뮬레이션 설정을 조절합니다.
-2.  **'시뮬레이션 실행 및 애니메이션 생성' 버튼**을 눌러 이벤트 시뮬레이션을 시작하고 광도 곡선 피크를 확인하세요.
-3.  생성된 애니메이션은 부드러운 움직임을 보여줍니다.
-""")
-
-st.header("✨ 시뮬레이션 제어 및 설정")
-
-# --- 모든 st.session_state 변수 초기화 (NameError 방지) ---
-if 'animation_created' not in st.session_state:
-    st.session_state.animation_created = False
-if 'animation_path_base64' not in st.session_state: # base64 인코딩된 문자열 저장
-    st.session_state.animation_path_base64 = None
-if 'light_curve_data' not in st.session_state:
-    st.session_state.light_curve_data = {'time': [], 'magnification': []}
-
-# 슬라이더의 기본값들을 session_state에 미리 초기화 (슬라이더 정의보다 먼저)
-if 'sim_total_frames' not in st.session_state:
-    st.session_state.sim_total_frames = 200
-if 'sim_duration_units' not in st.session_state:
-    st.session_state.sim_duration_units = 10.0
-if 'sim_frame_interval_ms' not in st.session_state:
-    st.session_state.sim_frame_interval_ms = 50
-if 'planet_distance_re' not in st.session_state:
-    st.session_state.planet_distance_re = 0.5
-if 'planet_orbit_speed_rad_per_frame' not in st.session_state:
-    st.session_state.planet_orbit_speed_rad_per_frame = 0.05
-# --- 세션 상태 초기화 끝 ---
-
-
-col_buttons = st.columns(3)
-with col_buttons[0]:
-    if st.button("▶️ 시뮬레이션 실행 및 애니메이션 생성"):
-        st.session_state.animation_created = False # 애니메이션 재생성 트리거
-        st.session_state.animation_path_base64 = None
-        st.session_state.light_curve_data = {'time': [], 'magnification': []} # 데이터 초기화
-        
-        # 애니메이션 생성 함수 호출 (캐싱되어 있으므로 설정값 변경 없으면 빠르게 반환)
-        # 이 시점에서 생성 메시지를 표시하기 위해 스피너 사용
-        with st.spinner("애니메이션을 생성 중입니다... ✨ (설정값에 따라 시간이 걸릴 수 있습니다)"):
-            data_url = create_and_display_animation(
-                sim_total_frames=st.session_state.sim_total_frames,
-                sim_duration_units=st.session_state.sim_duration_units,
-                sim_frame_interval_ms=st.session_state.sim_frame_interval_ms,
-                planet_distance_re=st.session_state.planet_distance_re,
-                planet_orbit_speed_rad_per_frame=st.session_state.planet_orbit_speed_rad_per_frame
-            )
-            st.session_state.animation_path_base64 = data_url
-            st.session_state.animation_created = True
-        st.success("애니메이션 생성 완료! 아래에서 확인하세요.")
-        st.experimental_rerun() # UI 업데이트를 위해 앱을 다시 로드
-
-with col_buttons[1]:
-    if st.button("🔄 시뮬레이션 초기화"):
-        st.session_state.animation_created = False
-        st.session_state.animation_path_base64 = None
-        st.session_state.light_curve_data = {'time': [], 'magnification': []}
-        st.experimental_rerun() # 앱을 처음부터 다시 로드하여 초기 상태로 만듦
-
-
-st.sidebar.header("⚙️ 시뮬레이션 설정")
-
-# 슬라이더 정의 (이전 섹션에서 미리 session_state에 초기화되었으므로 안전하게 참조 가능)
-st.session_state.sim_total_frames = st.sidebar.slider(
-    "총 시뮬레이션 프레임 수",
-    min_value=100,
-    max_value=500,
-    value=st.session_state.sim_total_frames, # 초기값을 session_state에서 가져옴
-    step=50,
-    help="애니메이션의 전체 프레임 수를 조절합니다. 많을수록 부드러워지지만 생성 시간이 길어집니다."
-)
-st.session_state.sim_duration_units = st.sidebar.slider(
-    "렌즈 별 횡단 범위 (아인슈타인 반지름)",
-    min_value=5.0,
-    max_value=20.0,
-    value=st.session_state.sim_duration_units,
-    step=1.0,
-    help="렌즈 별이 배경 별 앞을 지나가는 총 거리를 조절합니다. (예: 10은 -5RE에서 +5RE까지)"
-)
-st.session_state.sim_frame_interval_ms = st.sidebar.slider(
-    "프레임 간 간격 (ms)",
-    min_value=20,
-    max_value=200,
-    value=st.session_state.sim_frame_interval_ms,
-    step=10,
-    help="애니메이션 프레임 간의 시간 간격입니다. 작을수록 빠릅니다."
-)
-
-st.session_state.planet_distance_re = st.sidebar.slider(
-    "행성-렌즈 별 거리 (아인슈타인 반지름 대비)",
-    min_value=0.1,
-    max_value=2.0,
-    value=st.session_state.planet_distance_re,
-    step=0.1,
-    help="렌즈 별로부터 행성의 거리를 조절합니다. 아인슈타인 반지름(RE)에 비례합니다."
-)
-st.session_state.planet_orbit_speed_rad_per_frame = st.sidebar.slider(
-    "행성 공전 속도 (프레임당 라디안)",
-    min_value=0.01,
-    max_value=0.2,
-    value=st.session_state.planet_orbit_speed_rad_per_frame,
-    step=0.01,
-    help="행성이 렌즈 별 주위를 공전하는 속도입니다. 값이 클수록 빠르게 공전합니다."
-)
-
 # --- 애니메이션 생성 및 표시 함수 ---
 # @st.cache_data는 함수 인자가 변경될 때만 다시 실행되도록 합니다.
 @st.cache_data(show_spinner=False) # 스피너는 호출하는 곳에서 제어
@@ -241,6 +126,122 @@ def create_and_display_animation(
     st.session_state.light_curve_data['magnification'] = lc_magnifications
     
     return data_url
+
+
+# --- Streamlit 앱 시작 ---
+st.set_page_config(layout="wide", page_title="미세중력렌즈 시뮬레이터")
+
+st.title("🔭 미세중력렌즈 시각화 및 시뮬레이터")
+
+st.markdown("""
+이 앱은 **미세중력렌즈(Microlensing)** 현상을 시각적으로 탐색하고 이해할 수 있도록 돕습니다.
+우리와 배경 별 사이에 있는 **렌즈 별**의 중력에 의해 먼 **배경 별**의 빛이 휘어져
+밝기가 일시적으로 증가하는 현상을 시뮬레이션합니다.
+
+**사용 방법:**
+1.  사이드바에서 시뮬레이션 설정을 조절합니다.
+2.  **'시뮬레이션 실행 및 애니메이션 생성' 버튼**을 눌러 이벤트 시뮬레이션을 시작하고 광도 곡선 피크를 확인하세요.
+3.  생성된 애니메이션은 부드러운 움직임을 보여줍니다.
+""")
+
+st.header("✨ 시뮬레이션 제어 및 설정")
+
+# --- 모든 st.session_state 변수 초기화 (NameError 방지) ---
+if 'animation_created' not in st.session_state:
+    st.session_state.animation_created = False
+if 'animation_path_base64' not in st.session_state: # base64 인코딩된 문자열 저장
+    st.session_state.animation_path_base64 = None
+if 'light_curve_data' not in st.session_state:
+    st.session_state.light_curve_data = {'time': [], 'magnification': []}
+
+# 슬라이더의 기본값들을 session_state에 미리 초기화 (슬라이더 정의보다 먼저)
+if 'sim_total_frames' not in st.session_state:
+    st.session_state.sim_total_frames = 200
+if 'sim_duration_units' not in st.session_state:
+    st.session_state.sim_duration_units = 10.0
+if 'sim_frame_interval_ms' not in st.session_state:
+    st.session_state.sim_frame_interval_ms = 50
+if 'planet_distance_re' not in st.session_state:
+    st.session_state.planet_distance_re = 0.5
+if 'planet_orbit_speed_rad_per_frame' not in st.session_state:
+    st.session_state.planet_orbit_speed_rad_per_frame = 0.05
+# --- 세션 상태 초기화 끝 ---
+
+
+col_buttons = st.columns(3)
+with col_buttons[0]:
+    if st.button("▶️ 시뮬레이션 실행 및 애니메이션 생성"):
+        st.session_state.animation_created = False # 애니메이션 재생성 트리거
+        st.session_state.animation_path_base64 = None
+        st.session_state.light_curve_data = {'time': [], 'magnification': []} # 데이터 초기화
+        
+        # 애니메이션 생성 함수 호출 (캐싱되어 있으므로 설정값 변경 없으면 빠르게 반환)
+        # 이 시점에서 생성 메시지를 표시하기 위해 스피너 사용
+        with st.spinner("애니메이션을 생성 중입니다... ✨ (설정값에 따라 시간이 걸릴 수 있습니다)"):
+            data_url = create_and_display_animation( # <--- 여기가 73번째 줄 근처일 것입니다.
+                sim_total_frames=st.session_state.sim_total_frames,
+                sim_duration_units=st.session_state.sim_duration_units,
+                sim_frame_interval_ms=st.session_state.sim_frame_interval_ms,
+                planet_distance_re=st.session_state.planet_distance_re,
+                planet_orbit_speed_rad_per_frame=st.session_state.planet_orbit_speed_rad_per_frame
+            )
+            st.session_state.animation_path_base64 = data_url
+            st.session_state.animation_created = True
+        st.success("애니메이션 생성 완료! 아래에서 확인하세요.")
+        st.experimental_rerun() # UI 업데이트를 위해 앱을 다시 로드
+
+with col_buttons[1]:
+    if st.button("🔄 시뮬레이션 초기화"):
+        st.session_state.animation_created = False
+        st.session_state.animation_path_base64 = None
+        st.session_state.light_curve_data = {'time': [], 'magnification': []}
+        st.experimental_rerun() # 앱을 처음부터 다시 로드하여 초기 상태로 만듦
+
+
+st.sidebar.header("⚙️ 시뮬레이션 설정")
+
+# 슬라이더 정의 (이전 섹션에서 미리 session_state에 초기화되었으므로 안전하게 참조 가능)
+st.session_state.sim_total_frames = st.sidebar.slider(
+    "총 시뮬레이션 프레임 수",
+    min_value=100,
+    max_value=500,
+    value=st.session_state.sim_total_frames, # 초기값을 session_state에서 가져옴
+    step=50,
+    help="애니메이션의 전체 프레임 수를 조절합니다. 많을수록 부드러워지지만 생성 시간이 길어집니다."
+)
+st.session_state.sim_duration_units = st.sidebar.slider(
+    "렌즈 별 횡단 범위 (아인슈타인 반지름)",
+    min_value=5.0,
+    max_value=20.0,
+    value=st.session_state.sim_duration_units,
+    step=1.0,
+    help="렌즈 별이 배경 별 앞을 지나가는 총 거리를 조절합니다. (예: 10은 -5RE에서 +5RE까지)"
+)
+st.session_state.sim_frame_interval_ms = st.sidebar.slider(
+    "프레임 간 간격 (ms)",
+    min_value=20,
+    max_value=200,
+    value=st.session_state.sim_frame_interval_ms,
+    step=10,
+    help="애니메이션 프레임 간의 시간 간격입니다. 작을수록 빠릅니다."
+)
+
+st.session_state.planet_distance_re = st.sidebar.slider(
+    "행성-렌즈 별 거리 (아인슈타인 반지름 대비)",
+    min_value=0.1,
+    max_value=2.0,
+    value=st.session_state.planet_distance_re,
+    step=0.1,
+    help="렌즈 별로부터 행성의 거리를 조절합니다. 아인슈타인 반지름(RE)에 비례합니다."
+)
+st.session_state.planet_orbit_speed_rad_per_frame = st.sidebar.slider(
+    "행성 공전 속도 (프레임당 라디안)",
+    min_value=0.01,
+    max_value=0.2,
+    value=st.session_state.planet_orbit_speed_rad_per_frame,
+    step=0.01,
+    help="행성이 렌즈 별 주위를 공전하는 속도입니다. 값이 클수록 빠르게 공전합니다."
+)
 
 # --- 애니메이션 표시 영역 ---
 st.markdown("---")
