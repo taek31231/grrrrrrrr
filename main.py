@@ -2,11 +2,12 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-import os # 파일 저장 및 관리를 위해 추가
-import base64 # GIF 파일을 Streamlit에 임베드하기 위해 추가
+import os
+import base64
+import tempfile # tempfile 모듈 추가
 
 # --- 상수 및 초기 설정 ---
-RE = 1.0 # 아인슈타인 반지름을 단위로 가정
+RE = 1.0 # 아인슈타인 반지름을 단위로 가정 (시뮬레이션의 단순화를 위함)
 
 # --- 미세중력렌즈 확대율 함수 (단일 렌즈 모델) ---
 def calculate_magnification(u):
@@ -14,7 +15,8 @@ def calculate_magnification(u):
     단일 렌즈 미세중력렌즈 효과의 확대율을 계산합니다.
     u: 배경 별과 렌즈 별 사이의 거리 (아인슈타인 반지름으로 정규화된 값)
     """
-    if u < 0.01: # u가 너무 작아지는 경우 (무한대 발산 방지 및 물리적 현실성 반영)
+    # u가 0에 매우 가까워지면 무한대로 발산할 수 있으므로, 하한값을 둠
+    if u < 0.01: # 매우 작은 충격 매개변수 (피크 확대율 제한)
         u = 0.01
     return (u**2 + 2) / (u * np.sqrt(u**2 + 4))
 
@@ -27,6 +29,11 @@ st.markdown("""
 이 앱은 **미세중력렌즈(Microlensing)** 현상을 시각적으로 탐색하고 이해할 수 있도록 돕습니다.
 우리와 배경 별 사이에 있는 **렌즈 별**의 중력에 의해 먼 **배경 별**의 빛이 휘어져
 밝기가 일시적으로 증가하는 현상을 시뮬레이션합니다.
+
+**사용 방법:**
+1.  사이드바에서 시뮬레이션 설정을 조절합니다.
+2.  **'시뮬레이션 실행 및 애니메이션 생성' 버튼**을 눌러 이벤트 시뮬레이션을 시작하고 광도 곡선 피크를 확인하세요.
+3.  생성된 애니메이션은 부드러운 움직임을 보여줍니다.
 """)
 
 st.header("✨ 시뮬레이션 제어 및 설정")
@@ -34,33 +41,45 @@ st.header("✨ 시뮬레이션 제어 및 설정")
 # 세션 상태 초기화
 if 'animation_created' not in st.session_state:
     st.session_state.animation_created = False
-if 'animation_path' not in st.session_state:
-    st.session_state.animation_path = None
+if 'animation_path_base64' not in st.session_state: # base64 인코딩된 문자열 저장
+    st.session_state.animation_path_base64 = None
 if 'light_curve_data' not in st.session_state:
     st.session_state.light_curve_data = {'time': [], 'magnification': []}
 
 col_buttons = st.columns(3)
 with col_buttons[0]:
     if st.button("▶️ 시뮬레이션 실행 및 애니메이션 생성"):
-        st.session_state.animation_created = False # 애니메이션 재생성
-        st.session_state.animation_path = None
+        st.session_state.animation_created = False # 애니메이션 재생성 트리거
+        st.session_state.animation_path_base64 = None
         st.session_state.light_curve_data = {'time': [], 'magnification': []} # 데이터 초기화
         
-        # 시뮬레이션 시작 트리거 (아래에서 실제 애니메이션 생성)
-        st.write("애니메이션을 생성 중입니다. 잠시 기다려 주세요...")
-        # 이 시점에서 애니메이션 생성 함수를 호출하고 결과를 캐싱
-        create_and_display_animation() 
-        
+        # 애니메이션 생성 함수 호출 (캐싱되어 있으므로 변경 없으면 빠르게 반환)
+        # 이 시점에서 생성 메시지를 표시하기 위해 스피너 사용
+        with st.spinner("애니메이션을 생성 중입니다... ✨ (설정값에 따라 시간이 걸릴 수 있습니다)"):
+            data_url = create_and_display_animation(
+                sim_total_frames=st.session_state.sim_total_frames,
+                sim_duration_units=st.session_state.sim_duration_units,
+                sim_frame_interval_ms=st.session_state.sim_frame_interval_ms,
+                planet_distance_re=st.session_state.planet_distance_re,
+                planet_orbit_speed_rad_per_frame=st.session_state.planet_orbit_speed_rad_per_frame
+            )
+            st.session_state.animation_path_base64 = data_url
+            st.session_state.animation_created = True
+        st.success("애니메이션 생성 완료! 아래에서 확인하세요.")
+        st.experimental_rerun() # UI 업데이트를 위해 앱을 다시 로드
+
 with col_buttons[1]:
     if st.button("🔄 시뮬레이션 초기화"):
         st.session_state.animation_created = False
-        st.session_state.animation_path = None
+        st.session_state.animation_path_base64 = None
         st.session_state.light_curve_data = {'time': [], 'magnification': []}
         st.experimental_rerun() # 앱을 처음부터 다시 로드하여 초기 상태로 만듦
 
+
 st.sidebar.header("⚙️ 시뮬레이션 설정")
 
-sim_total_frames = st.sidebar.slider(
+# 슬라이더 값들을 session_state에 저장하여 캐시 함수가 접근할 수 있도록 함
+st.session_state.sim_total_frames = st.sidebar.slider(
     "총 시뮬레이션 프레임 수",
     min_value=100,
     max_value=500,
@@ -68,15 +87,15 @@ sim_total_frames = st.sidebar.slider(
     step=50,
     help="애니메이션의 전체 프레임 수를 조절합니다. 많을수록 부드러워지지만 생성 시간이 길어집니다."
 )
-sim_duration_units = st.sidebar.slider(
-    "렌즈 별 횡단 범위 (상대 거리)",
+st.session_state.sim_duration_units = st.sidebar.slider(
+    "렌즈 별 횡단 범위 (아인슈타인 반지름)",
     min_value=5.0,
     max_value=20.0,
     value=10.0,
     step=1.0,
     help="렌즈 별이 배경 별 앞을 지나가는 총 거리를 조절합니다. (예: 10은 -5RE에서 +5RE까지)"
 )
-sim_frame_interval_ms = st.sidebar.slider(
+st.session_state.sim_frame_interval_ms = st.sidebar.slider(
     "프레임 간 간격 (ms)",
     min_value=20,
     max_value=200,
@@ -85,7 +104,7 @@ sim_frame_interval_ms = st.sidebar.slider(
     help="애니메이션 프레임 간의 시간 간격입니다. 작을수록 빠릅니다."
 )
 
-planet_distance_re = st.sidebar.slider(
+st.session_state.planet_distance_re = st.sidebar.slider(
     "행성-렌즈 별 거리 (아인슈타인 반지름 대비)",
     min_value=0.1,
     max_value=2.0,
@@ -93,7 +112,7 @@ planet_distance_re = st.sidebar.slider(
     step=0.1,
     help="렌즈 별로부터 행성의 거리를 조절합니다. 아인슈타인 반지름(RE)에 비례합니다."
 )
-planet_orbit_speed_rad_per_frame = st.sidebar.slider(
+st.session_state.planet_orbit_speed_rad_per_frame = st.sidebar.slider(
     "행성 공전 속도 (프레임당 라디안)",
     min_value=0.01,
     max_value=0.2,
@@ -103,20 +122,26 @@ planet_orbit_speed_rad_per_frame = st.sidebar.slider(
 )
 
 # --- 애니메이션 생성 및 표시 함수 ---
-@st.cache_data(show_spinner="애니메이션을 생성 중입니다... ✨")
-def create_and_display_animation():
+# @st.cache_data는 함수 인자가 변경될 때만 다시 실행되도록 합니다.
+@st.cache_data(show_spinner=False) # 스피너는 호출하는 곳에서 제어
+def create_and_display_animation(
+    sim_total_frames, sim_duration_units, sim_frame_interval_ms,
+    planet_distance_re, planet_orbit_speed_rad_per_frame
+):
     fig, (ax_stars, ax_curve) = plt.subplots(1, 2, figsize=(15, 7), gridspec_kw={'width_ratios': [1, 2]})
     
     # 별 시각화 설정
     ax_stars.set_facecolor('black')
-    ax_stars.set_xlim(-sim_duration_units/2 - 1, sim_duration_units/2 + 1)
-    ax_stars.set_ylim(-sim_duration_units/2 - 1, sim_duration_units/2 + 1) # Y축 범위도 충분히 넓게
+    # 렌즈 별의 횡단 경로를 고려하여 X, Y 축 범위를 넓게 잡음
+    plot_limit = sim_duration_units / 2 + max(RE, planet_distance_re) + 1 # RE와 행성 거리 고려
+    ax_stars.set_xlim(-plot_limit, plot_limit)
+    ax_stars.set_ylim(-plot_limit, plot_limit) 
     ax_stars.set_aspect('equal', adjustable='box')
     ax_stars.axis('off')
     ax_stars.set_title("별들의 상대적 위치", color='white')
 
     # 광도 곡선 설정
-    ax_curve.set_xlabel("시간 (상대 단위)", color='white')
+    ax_curve.set_xlabel("시간 (프레임)", color='white')
     ax_curve.set_ylabel("배경 별의 상대 밝기 (확대율)", color='white')
     ax_curve.set_title("미세중력렌즈 광도 곡선", color='white')
     ax_curve.grid(True, linestyle='--', alpha=0.7, color='gray')
@@ -127,11 +152,16 @@ def create_and_display_animation():
 
     # 초기 플롯 객체
     # 별들
+    source_x, source_y = 0.0, 0.0 # 배경 별은 항상 중앙
     source_point, = ax_stars.plot([], [], 'o', color='gold', markersize=20, label="배경 별")
     lens_point, = ax_stars.plot([], [], 'o', color='skyblue', markersize=15, label="렌즈 별")
     planet_point, = ax_stars.plot([], [], 'o', color='gray', markersize=8, label="행성")
     einstein_ring_patch = plt.Circle((0, 0), RE, color='white', fill=False, linestyle='--', linewidth=0.8, alpha=0.6)
     ax_stars.add_patch(einstein_ring_patch)
+
+    # 배경 별 텍스트는 한 번만 추가 (움직이지 않으므로)
+    ax_stars.text(source_x + 0.2, source_y + 0.2, "배경 별", color='gold', fontsize=10)
+
 
     # 광도 곡선
     line_lc, = ax_curve.plot([], [], color='lime')
@@ -143,9 +173,6 @@ def create_and_display_animation():
     def update(frame):
         # 렌즈 별의 X 위치 (시뮬레이션 범위 -sim_duration_units/2 에서 sim_duration_units/2 까지 이동)
         lens_x_current = -sim_duration_units / 2 + (frame / (sim_total_frames - 1)) * sim_duration_units
-        
-        # 배경 별의 위치 (중앙 고정)
-        source_x, source_y = 0.0, 0.0
         
         # 렌즈 별과 배경 별 사이의 거리 (u)
         u = abs(lens_x_current - source_x)
@@ -163,12 +190,12 @@ def create_and_display_animation():
         
         einstein_ring_patch.center = (lens_x_current, 0) # 아인슈타인 링도 렌즈 별 따라 이동
 
-        # 텍스트 업데이트 (별 라벨은 한 번만 그리는 것이 좋음)
-        if frame == 0:
-            ax_stars.text(source_x + 0.2, source_y + 0.2, "배경 별", color='gold', fontsize=10)
-            ax_stars.text(lens_x_current + 0.2, 0 + 0.2, "렌즈 별", color='skyblue', fontsize=10)
-            ax_stars.text(lens_x_current + RE + 0.1, 0.5, "$R_E$", color='white', fontsize=10, ha='left', va='center')
-
+        # 렌즈 별 텍스트 업데이트 (위치가 바뀌므로 매번 업데이트)
+        # 이전 텍스트를 지우고 새로 그리는 대신, 직접 위치를 업데이트하는 방법이 효율적임
+        # 하지만 Matplotlib text 객체는 set_position 같은 직접적인 업데이트가 복잡하므로,
+        # 애니메이션 성능이 중요하면 주석 처리하거나, init_func에서만 그리는 것을 고려.
+        # 여기서는 간단히 두면 성능에 큰 영향 없음.
+        # ax_stars.texts[0].set_position((lens_x_current + 0.2, 0 + 0.2)) # 첫번째 텍스트 객체라고 가정
 
         # 광도 곡선 데이터 업데이트
         lc_times.append(frame) # 시간 대신 프레임 번호를 사용 (상대 시간)
@@ -185,20 +212,24 @@ def create_and_display_animation():
 
     ani = FuncAnimation(fig, update, frames=sim_total_frames, interval=sim_frame_interval_ms, blit=True, repeat=False)
 
-    # GIF로 저장 (Streamlit에서 표시하기 위함)
-    gif_path = "microlensing_animation.gif"
+    # --- GIF로 저장 (tempfile 사용) ---
+    with tempfile.NamedTemporaryFile(suffix=".gif", delete=False) as tmpfile:
+        gif_path = tmpfile.name
+    
+    # pillow writer가 필요할 때 다음과 같이 명시적으로 설정
     ani.save(gif_path, writer='pillow', fps=1000/sim_frame_interval_ms) # interval을 fps로 변환
     
-    plt.close(fig) # 그래프 객체 닫기
+    plt.close(fig) # 그래프 객체 닫기 (메모리 해제)
 
     # GIF 파일을 base64로 인코딩하여 직접 임베드
     with open(gif_path, "rb") as f:
         contents = f.read()
         data_url = base64.b64encode(contents).decode("utf-8")
     
-    # 세션 상태에 저장하여 캐싱 후에도 사용 가능하게
-    st.session_state.animation_created = True
-    st.session_state.animation_path = data_url
+    # 임시 파일 삭제 (선택 사항이지만 깔끔한 관리를 위해 권장)
+    os.remove(gif_path)
+    
+    # 최종 광도 곡선 데이터를 세션 상태에 저장하여 나중에 정적 그래프로 그릴 수 있도록 함
     st.session_state.light_curve_data['time'] = lc_times
     st.session_state.light_curve_data['magnification'] = lc_magnifications
     
@@ -207,12 +238,12 @@ def create_and_display_animation():
 # --- 애니메이션 표시 영역 ---
 st.markdown("---")
 
-if st.session_state.animation_created and st.session_state.animation_path:
+if st.session_state.animation_created and st.session_state.animation_path_base64:
     col_viz_gif, col_curve_static = st.columns([2, 3])
     
     with col_viz_gif:
         st.subheader("렌즈 효과 시뮬레이션")
-        st.image(f"data:image/gif;base64,{st.session_state.animation_path}", use_column_width=True)
+        st.image(f"data:image/gif;base64,{st.session_state.animation_path_base64}", use_column_width=True)
         st.caption("렌즈 별이 배경 별 앞을 지나가면서 빛이 휘어지는 모습을 시뮬레이션합니다.")
     
     with col_curve_static:
@@ -224,7 +255,7 @@ if st.session_state.animation_created and st.session_state.animation_path:
         if final_times and final_mags:
             fig_final_curve, ax_final_curve = plt.subplots(figsize=(8, 6))
             ax_final_curve.plot(final_times, final_mags, color='lime')
-            ax_final_curve.set_xlabel("시간 (상대 단위)", color='white')
+            ax_final_curve.set_xlabel("시간 (프레임)", color='white')
             ax_final_curve.set_ylabel("배경 별의 상대 밝기 (확대율)", color='white')
             ax_final_curve.set_title("미세중력렌즈 광도 곡선 (전체 이벤트)", color='white')
             ax_final_curve.grid(True, linestyle='--', alpha=0.7, color='gray')
@@ -241,4 +272,4 @@ if st.session_state.animation_created and st.session_state.animation_path:
             st.pyplot(fig_final_curve)
             plt.close(fig_final_curve)
 else:
-    st.info("시뮬레이션 '실행' 버튼을 눌러 애니메이션을 생성하고 확인하세요.")
+    st.info("사이드바에서 설정을 조절하고 '시뮬레이션 실행 및 애니메이션 생성' 버튼을 눌러 애니메이션을 확인하세요.")
