@@ -38,13 +38,27 @@ st.markdown("""
 
 st.header("✨ 시뮬레이션 제어 및 설정")
 
-# 세션 상태 초기화
+# --- 모든 st.session_state 변수 초기화 (NameError 방지) ---
 if 'animation_created' not in st.session_state:
     st.session_state.animation_created = False
 if 'animation_path_base64' not in st.session_state: # base64 인코딩된 문자열 저장
     st.session_state.animation_path_base64 = None
 if 'light_curve_data' not in st.session_state:
     st.session_state.light_curve_data = {'time': [], 'magnification': []}
+
+# 슬라이더의 기본값들을 session_state에 미리 초기화 (슬라이더 정의보다 먼저)
+if 'sim_total_frames' not in st.session_state:
+    st.session_state.sim_total_frames = 200
+if 'sim_duration_units' not in st.session_state:
+    st.session_state.sim_duration_units = 10.0
+if 'sim_frame_interval_ms' not in st.session_state:
+    st.session_state.sim_frame_interval_ms = 50
+if 'planet_distance_re' not in st.session_state:
+    st.session_state.planet_distance_re = 0.5
+if 'planet_orbit_speed_rad_per_frame' not in st.session_state:
+    st.session_state.planet_orbit_speed_rad_per_frame = 0.05
+# --- 세션 상태 초기화 끝 ---
+
 
 col_buttons = st.columns(3)
 with col_buttons[0]:
@@ -53,7 +67,7 @@ with col_buttons[0]:
         st.session_state.animation_path_base64 = None
         st.session_state.light_curve_data = {'time': [], 'magnification': []} # 데이터 초기화
         
-        # 애니메이션 생성 함수 호출 (캐싱되어 있으므로 변경 없으면 빠르게 반환)
+        # 애니메이션 생성 함수 호출 (캐싱되어 있으므로 설정값 변경 없으면 빠르게 반환)
         # 이 시점에서 생성 메시지를 표시하기 위해 스피너 사용
         with st.spinner("애니메이션을 생성 중입니다... ✨ (설정값에 따라 시간이 걸릴 수 있습니다)"):
             data_url = create_and_display_animation(
@@ -78,12 +92,12 @@ with col_buttons[1]:
 
 st.sidebar.header("⚙️ 시뮬레이션 설정")
 
-# 슬라이더 값들을 session_state에 저장하여 캐시 함수가 접근할 수 있도록 함
+# 슬라이더 정의 (이전 섹션에서 미리 session_state에 초기화되었으므로 안전하게 참조 가능)
 st.session_state.sim_total_frames = st.sidebar.slider(
     "총 시뮬레이션 프레임 수",
     min_value=100,
     max_value=500,
-    value=200,
+    value=st.session_state.sim_total_frames, # 초기값을 session_state에서 가져옴
     step=50,
     help="애니메이션의 전체 프레임 수를 조절합니다. 많을수록 부드러워지지만 생성 시간이 길어집니다."
 )
@@ -91,7 +105,7 @@ st.session_state.sim_duration_units = st.sidebar.slider(
     "렌즈 별 횡단 범위 (아인슈타인 반지름)",
     min_value=5.0,
     max_value=20.0,
-    value=10.0,
+    value=st.session_state.sim_duration_units,
     step=1.0,
     help="렌즈 별이 배경 별 앞을 지나가는 총 거리를 조절합니다. (예: 10은 -5RE에서 +5RE까지)"
 )
@@ -99,7 +113,7 @@ st.session_state.sim_frame_interval_ms = st.sidebar.slider(
     "프레임 간 간격 (ms)",
     min_value=20,
     max_value=200,
-    value=50,
+    value=st.session_state.sim_frame_interval_ms,
     step=10,
     help="애니메이션 프레임 간의 시간 간격입니다. 작을수록 빠릅니다."
 )
@@ -108,7 +122,7 @@ st.session_state.planet_distance_re = st.sidebar.slider(
     "행성-렌즈 별 거리 (아인슈타인 반지름 대비)",
     min_value=0.1,
     max_value=2.0,
-    value=0.5,
+    value=st.session_state.planet_distance_re,
     step=0.1,
     help="렌즈 별로부터 행성의 거리를 조절합니다. 아인슈타인 반지름(RE)에 비례합니다."
 )
@@ -116,7 +130,7 @@ st.session_state.planet_orbit_speed_rad_per_frame = st.sidebar.slider(
     "행성 공전 속도 (프레임당 라디안)",
     min_value=0.01,
     max_value=0.2,
-    value=0.05,
+    value=st.session_state.planet_orbit_speed_rad_per_frame,
     step=0.01,
     help="행성이 렌즈 별 주위를 공전하는 속도입니다. 값이 클수록 빠르게 공전합니다."
 )
@@ -190,13 +204,6 @@ def create_and_display_animation(
         
         einstein_ring_patch.center = (lens_x_current, 0) # 아인슈타인 링도 렌즈 별 따라 이동
 
-        # 렌즈 별 텍스트 업데이트 (위치가 바뀌므로 매번 업데이트)
-        # 이전 텍스트를 지우고 새로 그리는 대신, 직접 위치를 업데이트하는 방법이 효율적임
-        # 하지만 Matplotlib text 객체는 set_position 같은 직접적인 업데이트가 복잡하므로,
-        # 애니메이션 성능이 중요하면 주석 처리하거나, init_func에서만 그리는 것을 고려.
-        # 여기서는 간단히 두면 성능에 큰 영향 없음.
-        # ax_stars.texts[0].set_position((lens_x_current + 0.2, 0 + 0.2)) # 첫번째 텍스트 객체라고 가정
-
         # 광도 곡선 데이터 업데이트
         lc_times.append(frame) # 시간 대신 프레임 번호를 사용 (상대 시간)
         lc_magnifications.append(current_magnification)
@@ -238,6 +245,7 @@ def create_and_display_animation(
 # --- 애니메이션 표시 영역 ---
 st.markdown("---")
 
+# 애니메이션이 생성되었으면 GIF와 최종 광도 곡선 표시
 if st.session_state.animation_created and st.session_state.animation_path_base64:
     col_viz_gif, col_curve_static = st.columns([2, 3])
     
@@ -267,7 +275,7 @@ if st.session_state.animation_created and st.session_state.animation_path_base64
             min_mag = 1.0 
             max_mag_in_data = max(final_mags) if final_mags else 1.0
             ax_final_curve.set_ylim(bottom=0.95, top=max(max_mag_in_data * 1.1, 2.0))
-            ax_final_curve.set_xlim(left=0, right=sim_total_frames)
+            ax_final_curve.set_xlim(left=0, right=st.session_state.sim_total_frames) # X축 범위도 설정
 
             st.pyplot(fig_final_curve)
             plt.close(fig_final_curve)
